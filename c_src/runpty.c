@@ -30,23 +30,25 @@
 
 #ifdef DEBUG
 #define DBG(...) dprintf(dbgfd, __VA_ARGS__)
+#define DBGEXIT(status) { close(dbgfd); exit(status); }
 #else
 #define DBG(...)
+#define DBGEXIT(status) {exit(status); }
 #endif
 
 #define PRINT(reason)                                                   \
-    fprintf(stderr, "\nrunpty: %s: %s\n", reason, strerror(errno));     \
-    DBG("\n\n%s: %sy\n", reason, strerror(errno))                       \
+    fprintf(stderr, "\nrunpty error: %s: %s\n", reason, strerror(errno)); \
+    DBG("\n\n%s: %s\n", reason, strerror(errno))                        \
 
 #define EXIT(reason)                                                    \
     {                                                                   \
         PRINT(reason);                                                  \
-        exit(1);                                                        \
+        DBGEXIT(1);                                                     \
     }
 
 #define QUIT(reason)                                                    \
     {                                                                   \
-        PRINT(reason);                                                  \
+        quit_reason = reason;                                           \
         goto quit;                                                      \
     }
 
@@ -117,6 +119,7 @@ void restore_blocking(int fd, int outfd)
     fcntl(outfd, F_SETFL, prev_outfd_flags);
 }
 
+static char* quit_reason = NULL;
 int main(int argc, char *argv[])
 {
     int in = fileno(stdin);
@@ -145,7 +148,7 @@ int main(int argc, char *argv[])
     }
 #endif
     if (argc < 2) {
-        exit(1);
+        EXIT("too few arguments");
     }
 
     if ((slavepath = openmaster(&master, &slave)) == NULL) {
@@ -253,7 +256,7 @@ int main(int argc, char *argv[])
             DBG(", wrote %d bytes\n", outw);
             if (outw < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) outw = 0;
             if (outw < 0) QUIT("write out");
-    }
+        }
         if (FD_ISSET(out, &writefdset)) {
             int left = outr-outw;
             int w = write(out, outbuf+outw, left);
@@ -263,15 +266,16 @@ int main(int argc, char *argv[])
             DBG(", in total %d of %d\n", outw, outr);
         }
     }
+
 quit:
-#ifdef DEBUG
-    close(dbgfd);
-#endif
     close(master);
 
     if (waitpid(child, &status, WNOHANG) == 0) {
-        /* Child hasn't terminated, give it some time and if it still
-         * hasn't quit, kill it*/
+        /* Child hasn't terminated, give it some time
+         * and if it still hasn't quit, kill it */
+
+        if (quit_reason != NULL) PRINT(quit_reason);
+
         struct timeval tv;
         tv.tv_sec = 5; tv.tv_usec = 0;
         signal(SIGCHLD, sighdlr);
@@ -285,12 +289,17 @@ quit:
     restore_blocking(in, master);
 
     if (WIFEXITED(status)) {
-        fprintf(stderr, "Child exited with status %d\n", WEXITSTATUS(status));
-        exit(WEXITSTATUS(status));
+        DBG( "runpty error: Child exited with status %d\n",
+             WEXITSTATUS(status));
+        DBGEXIT(WEXITSTATUS(status));
     }
 
-    if (WIFSIGNALED(status))
-        fprintf(stderr, "Child terminated by signal %d\n", WTERMSIG(status));
-
-    exit(1);
+    if (WIFSIGNALED(status)) {
+        fprintf(stderr, "runpty error: Child terminated by signal %d\n",
+                WTERMSIG(status));
+        DBG("runpty error: Child terminated by signal %d\n",
+            WTERMSIG(status));
+        DBGEXIT(1);
+    }
+    DBGEXIT(1);
 }
