@@ -1,7 +1,7 @@
 Lux - LUcid eXpect scripting
 ============================
 
-Version 1.16.1 - 2017-03-23
+Version 1.16.1 - 2017-04-06
 
 * [Introduction](#../README)
 * [Concepts](#main_concepts)
@@ -43,85 +43,122 @@ on [GitHub](https://github.com/hawk/lux/blob/master/doc/lux.md).
 A sample script
 ---------------
 
-Here is an example of a test script `(lux/examples/intro.lux)`. It
-starts couple of concurrent shells and sends text to them with the
-`!` command and matches expected output with `?`.
+Here is an example of a test script. It starts couple of concurrent
+shells, sends text to them with the `!` command and matches expected
+output with `?`.
+
+Snippet from the enclosed `.../lux/examples/intro.lux` file:
 
 >     [doc Test of single and multi line regular expressions]
->
->     # A global variable is accessible in all shells
+>     
+>     # Assign a global variable which is accessible in all shells
 >     [global file=removeme.txt]
->
+>     
+>     # Start a shell
 >     [shell single]
->         # The terminal echoes all input
+>         # Send text to the active shell
 >         !echo foo
+>         # Match output from the active shell
+>         # The terminal echoes all input and here we match on the echoed input
 >         ?echo foo
->
+>     
+>     # Start yet another shell (and make it the active one)
 >     [shell multi]
->         # bar is indented 4 characters
+>         # Create a file where bar and baz happens to be indented
+>         # Variables are
 >         !echo "foo"      > $file
 >         !echo "    bar" >> $file
+>         !echo "  baz"   >> $file
 >         !echo "fum"     >> $file
+>     
+>         # Single line matches
 >         !cat $file
->
->         # The first double quote char defines the
->         # first column of the multi line regexp
+>         ?foo
+>         ?bar
+>         # Don't bother of matching baz. All output between bar and fum is skipped.
+>         ?fum
+>         # Match the predefined shell prompt
+>         ?SH-PROMPT:
+>     
+>         # Multi line match. The first double quote char defines the first
+>         # column of the regexp. The indentation of bar and baz is significant.
+>         !cat $file
 >         """?
 >         foo
 >             bar
+>           baz
 >         fum
+>         SH-PROMPT:
 >         """
->
->     # Let single be the active shell again
+>     
+>     # Switch back to the first shell
 >     [shell single]
+>         # Match the actual output from the echo command
 >         ?^foo
->
->     # Cleanup is always executed, regardless if the script succeeds or fails
+>     
+>     # Cleanup side effects. The cleanup section is always executed,
+>     # regardless of the script succeeds or fails
 >     [cleanup]
->         # Match of command exit status. Observe the double dollar sign.
 >         !rm -f $file
+>         ?SH-PROMPT:
+>         # Match command exit status. Observe the double dollar sign which
+>         # escapes the dollar sign, implying "echo ==$$?==" to be sent to
+>         # the shell.
 >         !echo ==$$?==
 >         ?^==0==
+>     
 
 How to run the script
 ---------------------
 
 Run a single script like this:
 
->     /home/hm> lux lux/examples/intro.lux
->
->     summary log       : /home/hm/lux_logs/run_2012_03_22_12_44_42/lux_summary.log
->
->     test case         : /home/hm/lux/examples/intro.lux
->     progress          : ..:..:....:.....:...:...:..:..:..:.....c......:...:...:..:....
+Evaluate `lux examples/intro.lux`
+
+>     .../lux> lux examples/intro.lux
+>     summary log       : /Users/hmattsso/dev/lux/lux_logs/run_2017_04_06_14_40_10_804855/lux_summary.log
+>     test case         : examples/intro.lux
+>     progress          : ..:..:..:..:..:....:...:.:...:.:..:..:..:..:.:...:..:.:..:.:..:.:.:.:.:....c....:.:.:..:..:..:..:.:..:..:.
 >     result            : SUCCESS
->
 >     successful        : 1
 >     summary           : SUCCESS
->
->     file:///home/hm/lux_logs/run_2012_03_22_12_44_42/lux_summary.log.html
->
->     /home/hm>
+>     file:///Users/hmattsso/dev/lux/lux_logs/run_2017_04_06_14_40_10_804855/lux_summary.log.html
+>     .../lux> echo $?
+>     0
+
 
 In this run we got a (brief) progress report of the test case on
 stdout and a link to a summary log containing (lots of) details.
+
 How to assemble the history of multiple runs
 --------------------------------------------
 
 In a nightly build environment it might be difficult to pinpoint when
 a certain test case/suite started to fail. This process is greatly
 simplified by running `lux` with the `--history` option as it will
-assemble all test results as a timeline (interleaved with changeset
+assemble all test results as a timeline (interleaved with change-set
 identities if provided with `--revision`).
 
->     /home/hm> lux --revision svn_4711 --run jenkins_17 lux/examples
->     /home/hm> lux --revision svn_4712 --run jenkins_20 lux/examples/intro.lux
->     /home/hm> lux --revision svn_4712 --run jenkins_20 lux/examples/fail.lux
->     /home/hm> lux --revision svn_4715 --run jenkins_22 lux/examples
->     /home/hm> lux --history .
->     Assembling history of logs in /home/hm.......4 test runs...ok
->
->     file:///home/hm/lux_history.html
+Evaluate `lux --revision svn_4711 --run jenkins_17 examples`
+
+
+Evaluate `lux --revision svn_4712 --run jenkins_20 examples/intro.lux`
+
+
+Evaluate `lux --revision svn_4712 --run jenkins_20 examples/fail.lux`
+
+
+Evaluate `lux --revision svn_4715 --run jenkins_22 examples`
+
+
+Evaluate `lux --history .`
+
+>     .../lux> lux --history .
+>     Assembling history of logs in /Users/hmattsso/dev/lux/..............................s..............................56 test runs (0 errors)...ok
+>     file:///Users/hmattsso/dev/lux/lux_history.html
+>     .../lux> echo $?
+>     0
+
 <a name="main_concepts"/>
 
 Concepts
@@ -269,10 +306,10 @@ Such as ABC, ACB, BAC, BCA, CAB and CBA. It can be achieved by
 the relatively simple regexp `?(ABC)|(ACB)|(BAC)|(BCA)|CAB)|(CBA)`.
 But with larger regexps, possibly spanning multiple lines, it
 can be quite complex to just write the regexps. Performing the
-post mortem analyzis to determine which subpattern that is
+post mortem analyzis to determine which sub-pattern that is
 matching which part of the output will be even worse. In the
-following example `?+` is used to register a subpattern and `?`
-evaluates the permutations of all subpatterns (including the one
+following example `?+` is used to register a sub-pattern and `?`
+evaluates the permutations of all sub-patterns (including the one
 specified with `?).
 
     ?+A
@@ -1317,13 +1354,338 @@ of the command is repeated or not.
 * index   - log number; 1 >= integer =< infinity  
 * format  - display format; enum(compact|verbose)  
 * n_lines - fixed number of lines; 1 >= integer =< infinity  
-
 <a name="examples"/>
 
 Examples
 ========
 
-To be written...<a name="../INSTALL"/>
+A successful test case
+----------------------
+
+Here is an example of a test script. It starts couple of concurrent
+shells, sends text to them with the `!` command and matches expected
+output with `?`. The send and match operations are always performed in
+context of the active shell.
+
+Match operations search for a given pattern in the output stream. Once
+a match is found, the preceding characters are skipped. There are a
+few flavors of match operations. They may be single line or multi
+line. Evaluate regular expressions or verbatim. Variables can be
+expanded or not. When using regular expressions variables can be bound
+to parts of the output and used later in the test case.
+
+There are different variable scopes. They may be accessible from all
+shells (global), only accessible within the shell where they were set
+(local), only accessible with in their lexical scope (my) such as
+within a macro, loop etc.
+
+When a test case has side effects, such as creating files, start
+programs etc., the test case should have a `[cleanup]` section where
+the side effect is reversed. Otherwise subsequent test cases may
+fail. The cleanup section is always executed, regardless of the script
+succeeds or fails.
+
+Snippet from the enclosed `.../lux/examples/intro.lux` file:
+
+>     [doc Test of single and multi line regular expressions]
+>     
+>     # Assign a global variable which is accessible in all shells
+>     [global file=removeme.txt]
+>     
+>     # Start a shell
+>     [shell single]
+>         # Send text to the active shell
+>         !echo foo
+>         # Match output from the active shell
+>         # The terminal echoes all input and here we match on the echoed input
+>         ?echo foo
+>     
+>     # Start yet another shell (and make it the active one)
+>     [shell multi]
+>         # Create a file where bar and baz happens to be indented
+>         # Variables are
+>         !echo "foo"      > $file
+>         !echo "    bar" >> $file
+>         !echo "  baz"   >> $file
+>         !echo "fum"     >> $file
+>     
+>         # Single line matches
+>         !cat $file
+>         ?foo
+>         ?bar
+>         # Don't bother of matching baz. All output between bar and fum is skipped.
+>         ?fum
+>         # Match the predefined shell prompt
+>         ?SH-PROMPT:
+>     
+>         # Multi line match. The first double quote char defines the first
+>         # column of the regexp. The indentation of bar and baz is significant.
+>         !cat $file
+>         """?
+>         foo
+>             bar
+>           baz
+>         fum
+>         SH-PROMPT:
+>         """
+>     
+>     # Switch back to the first shell
+>     [shell single]
+>         # Match the actual output from the echo command
+>         ?^foo
+>     
+>     # Cleanup side effects. The cleanup section is always executed,
+>     # regardless of the script succeeds or fails
+>     [cleanup]
+>         !rm -f $file
+>         ?SH-PROMPT:
+>         # Match command exit status. Observe the double dollar sign which
+>         # escapes the dollar sign, implying "echo ==$$?==" to be sent to
+>         # the shell.
+>         !echo ==$$?==
+>         ?^==0==
+>     
+
+A failing test case
+-------------------
+
+Test cases are executed until they succeed or fail. The script is
+aborted at the first failure. Which may occur when the expected output
+not has matched within the given timeout or when the fail pattern has
+matched. A fail pattern is local to the given shell and will cause
+abort when it matches.
+
+The (match) timeout may explicitly be set within the script, in a
+configuration file or given as a command line parameter. If the tests
+are run both on fast machines and slow machines, it may be hard to set
+an optimal timeout length. Then it may be appropriate to multiply the
+timeout with different factors depending on the machine capabilities.
+The config parameter called multiplier is used for this purpose. As
+all configuration parameters, it can be given a host specific setting
+or a architecture specific setting. Or even overridden on command
+line.
+
+As a test case may fail early or late in its execution the cleanup
+code must cope with this. For example if a test case which normally
+creates a file or starts a program fails before that point it must be
+written in a manner so it does not fail during the cleanup.
+
+Lux collects data in various logs. Such as an event log, one log per
+shell for stdin and stdout etc. But sometimes this is not enough. For
+example logs from the SUT (System Under Test). Such logs should be
+stored under $LUX_EXTRA_LOGS. The $LUX_EXTRA_LOGS is a built-in
+variable containing a suitable directory path. The SUT can either be
+configured to store its logs there or the logs may be copied during
+cleanup. In order to only copy the logs at failure the cleanup code
+may test on the variable $LUX_START_REASON which also is built-in. It
+is set to "fail" if the (cleanup) shell was started after a failure
+has encountered. These extra logs are located under lux log directory
+and it can (also) be reached via an HTML link from the annotated event
+log.
+
+Snippet from the enclosed `.../lux/examples/fail.lux` file:
+
+>     [doc Demonstrate a failure]
+>     
+>     [global fail_pattern=[Ee][Rr][Rr][Oo][Rr]]
+>     [global eprompt=\d+>\s]
+>     
+>     [doc2 Provoke a failure to get something interesting in the logs]
+>     
+>     [shell calculator]
+>         -$fail_pattern|SH-PROMPT:
+>         !erl
+>     
+>         # Multi-line expect
+>         """?
+>         Eshell.*
+>         $eprompt
+>         """
+>     
+>         # Multi-line send
+>         """!
+>         2+3.
+>         6+7.
+>         """
+>     
+>         # Ignore output between 5 and 13
+>         ?5
+>         ?13
+>     
+>         # Shorten the match timeout as we deliberately will demo a fail
+>         [timeout 2]
+>         !5+13.
+>         # Next line will fail
+>         ?19
+>     
+>     [cleanup]
+>         # Save logs at fail
+>         ~if [ "$LUX_START_REASON" = "fail" ]; then
+>         ~  mkdir -p $LUX_EXTRA_LOGS/erl;
+>         ~  cp -r ./logs/* $LUX_EXTRA_LOGS/erl;
+>         !fi; true
+>         ?SH-PROMPT:
+>     
+
+Warnings and avoiding failures
+------------------------------
+
+At startup lux imports all environment variables as global lux
+variables. making them accessible vith `$var` syntax. Variables may
+also be set in architecture or host specific configuration files. This
+may be useful when certain test cases only can be run on some hosts
+due to missing libraries, lack of memory etc.
+
+Test cases may be skipped by testing of a certain variable is set at
+all `[config skip=VAR]` or is set to a certain value `[config
+skip=VAR=val]`.  The inverse is also possible, by using `[config
+skip_unless=VAR]` and `[config skip_unless=VAR=val]` respectively.
+
+During development when some test cases are unstable it is possible to
+classify those as unstable. This implies that they are run but instead
+of reporting a failed test case as failure it is reported as a
+warning.
+
+Here are few examples of a few config settings which may be useful in
+a hetrogenous lab environment:
+
+One config file `.../lux_config/Linux-i686.luxcfg`
+
+>     [config var=MAKE=make]
+>     [config var=USE_VALGRIND=true]
+>     [config multiplier=1000]
+
+and another `.../lux_config/SunOS-sun4u.luxcfg`
+
+>     [config var=MAKE=gmake]
+>     [config var=TEST_SUNOS=true]
+>     [config var=SKIP_JAVA=true]
+>     [config var=USE_VALGRIND=false]
+>     [config multiplier=3000]
+
+Snippet from the enclosed `.../lux/examples/error.lux` file:
+
+>     [doc Demonstrate an error]
+>     
+>     [config require=MAKE]
+>     
+>     [shell setup]
+>         !$MAKE start
+>     
+>     
+>     [cleanup]
+>         !$MAKE stop
+>     
+
+Snippet from the enclosed `.../lux/examples/warning.lux` file:
+
+>     [doc Demonstrate a warning]
+>     
+>     [global foo=bar]   
+>     
+
+Snippet from the enclosed `.../lux/examples/skip.lux` file:
+
+>     [doc Demonstrate a skipped test]
+>     
+>     [doc2 Show examples of config settings]
+>     
+>     [config skip=SKIP_JAVA]
+>     [config skip_unless=TEST_SUNOS]
+>     
+>     [shell foo]
+>         ?bar
+>     
+
+Snippet from the enclosed `.../lux/examples/unstable.lux` file:
+
+>     [doc Demonstrate an unstable test]
+>     
+>     [config unstable_unless=TEST_DEVELOP]
+>     
+>     [shell foo]
+>         [timeout 1]
+>         ?bar
+>     
+
+Here follow the output from the enclosed example test suite under
+`.../lux/examples`.
+
+Evaluate `lux examples`
+
+>     .../lux> lux examples
+>     summary log       : /Users/hmattsso/dev/lux/lux_logs/run_2017_04_06_14_40_35_505686/lux_summary.log
+>     test case         : examples/calc.lux
+>     progress          : ..:..:..:...:..:.:.:....:..:..:.:..(....:..:.:.:...)(.:..:..)...:..:..:..(.:..:..)..(.:..:..)(....:.:..:...)(.:..:..)..(.:..:..).......:...
+>     result            : SUCCESS
+>     test case         : examples/error.lux
+>     result            : FAIL as required variable MAKE is not set
+>     test case         : examples/fail.lux
+>     progress          : ..:..:..:.:...:.:..:.:.:..:..:.:....:..:..32C..:..:..:..:..:.:..:.:..:.:..:.:.:.:.:.:.:.:.:.:.:.:.:.:.:.:.:.:.:.:.:.
+>     result            : FAIL at 32
+>     expected
+>     	19
+>     actual match_timeout
+>     	
+>     	3> 5+13.
+>     	18
+>     	4> 
+>     diff
+>     	- 19
+>     	+ 
+>     	+ 3> 5+13.
+>     	+ 18
+>     	+ 4> 
+>     	
+>     test case         : examples/intro.lux
+>     progress          : ..:..:..:..:.:..:....:...:.:...:.:..:..:..:..:..:.:..:..:.:..:.:..:.:.:....c....:.:.:..:..:..:..:.:..:..:.
+>     result            : SUCCESS
+>     test case         : examples/loop.lux
+>     progress          : ..:...:.:.((.:..:.:.)(..:.:.)(.:..:.))((.:..:.)(.:..:.)(.:..:.)(.:..:.)(.:..:.))((.:..:.)(.:..:.)(.:.:..)(.:.:..)(.:..:.)(.:..:.)(.:..:.)(.:.:..))...:..:..:..:..:.:..:..:.:...:..:..:.((.i=1..:..:.:.:..z)(z..i=2..:..:.:.:..z)(z..i=3...:.:.:..z)(:.z..i=4..:..:.:..z:).)c.....:..:..:..:..:.:.
+>     result            : SUCCESS
+>     test case         : examples/loop_fail.lux
+>     progress          : ..:..:..:.((.i=1..:..:..z)(z..i=2...:.:..z)(z..i=3..:..:..z))5
+>     result            : FAIL at 5:5
+>     expected
+>     	
+>     actual error
+>     	Loop ended without match of "THIS WILL NEVER MATCH"
+>     diff
+>     	- 
+>     	+ Loop ended without match of "THIS WILL NEVER MATCH"
+>     	
+>     test case         : examples/skip.lux
+>     result            : SKIP as variable TEST_SUNOS is not set
+>     test case         : examples/unstable.lux
+>     progress          : ..:..:..:....7
+>     result            : WARNING at 7
+>     expected
+>     	bar
+>     actual match_timeout
+>     	
+>     diff
+>     	- bar
+>     	+ 
+>     	
+>     test case         : examples/warning.lux
+>     progress          : 
+>     result            : WARNING
+>     successful        : 3
+>     skipped           : 1
+>     	examples/skip.lux:6
+>     warnings          : 2
+>     	examples/unstable.lux:7 - Fail but UNSTABLE as variable TEST_DEVELOP is not set
+>     	examples/warning.lux:3 - Trailing whitespaces
+>     failed            : 3
+>     	examples/error.lux:3 - fail
+>     	examples/fail.lux:32 - match_timeout
+>     	examples/loop_fail.lux:5:5 - Loop ended without match of "THIS WILL NEVER MATCH"
+>     summary           : FAIL
+>     file:///Users/hmattsso/dev/lux/lux_logs/run_2017_04_06_14_40_35_505686/lux_summary.log.html
+>     .../lux> echo $?
+>     1
+
+<a name="../INSTALL"/>
 
 Installation
 ============
