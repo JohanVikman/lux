@@ -7,7 +7,7 @@
 
 -module(lux_html_parse).
 
--export([validate_file/1, parse_file/1, format_results/1,
+-export([validate_file/1, format_results/1,
          validate_html/1, validate_html/2]).
 
 -include_lib("lux.hrl").
@@ -53,7 +53,7 @@ validate_html(HtmlFile) ->
 -spec validate_file(File::file:filename()) -> [val_res()].
 
 validate_file(File) ->
-    Res = deep_parse_files([File], []),
+    Res = deep_parse_files([File]),
     %% io:format("\nLINKS: ~s\n\t~p\n", [File, Res]),
     Enoent = file:format_error(enoent),
     Fun = fun(E, A) -> validate_links(E, Res, Enoent, A) end,
@@ -69,14 +69,7 @@ validate_links({error, Abs, Line, Col, Reason}, _Orig, _EnoEnt, Acc) ->
     [{syntax_error, Abs, Line, Col, Reason} | Acc].
 
 do_validate_links({link, External, Internal}, Abs, Orig, EnoEnt, Acc) ->
-    AbsDir = filename:dirname(Abs),
-    {Type, AbsExternal0} =
-        case External of
-            ""            -> {local,  Abs};
-            "http:"  ++ _ -> {remote, External};
-            "https:" ++ _ -> {remote, External};
-            _             -> {local,  filename:join([AbsDir, External])}
-        end,
+    {Type, AbsExternal0} = link_type(External, Abs),
     AbsExternal = lux_utils:normalize_filename(AbsExternal0),
     case Type of
         remote ->
@@ -115,36 +108,69 @@ do_validate_links({link, External, Internal}, Abs, Orig, EnoEnt, Acc) ->
 do_validate_links({anchor, _Name}, _Abs, _Orig, _EnoEnt, Acc) ->
     Acc.
 
-deep_parse_files([Rel|Rest], Acc) ->
+link_type(External, Abs) ->
+    case External of
+        "" ->
+            {local,  Abs};
+        "http:"  ++ _ ->
+            {remote, External};
+        "https:" ++ _ ->
+            {remote, External};
+        _ ->
+            AbsDir = filename:dirname(Abs),
+            {local,  filename:join([AbsDir, External])}
+    end.
+
+deep_parse_files(Files) ->
+    {Remote, StopFun} = opt_start_app(inets),
+    Res = do_deep_parse_files(Files, Remote, []),
+    StopFun(),
+    Res.
+
+opt_start_app(App) ->
+    case application:start(App) of
+        ok ->
+            {true, fun() -> application:stop(App) end};
+        {error,{already_started,App}} ->
+            {true, fun() -> ok end};
+        {error,_Reason} ->
+            {false, fun() -> ok end}
+    end.
+
+do_deep_parse_files([Rel|Rest], Remote, Acc) ->
     Abs0 = filename:absname(Rel),
     Abs = lux_utils:normalize_filename(Abs0),
     case lists:keymember(Abs, 2, Acc) of
         true ->
             %% Already parsed
-            deep_parse_files(Rest, Acc);
+            do_deep_parse_files(Rest, Remote, Acc);
         false ->
-            case parse_file(Abs) of
+            case parse_file(Abs, Remote) of
                 {ok, Simple, Type} ->
                     Refs = to_links(Simple),
-                    Dir = filename:dirname(Abs),
-                    AbsName =
-                        fun(F) ->
-                                case F of
-                                    ""            -> Abs;
-                                    "http:"  ++ _ -> Abs;
-                                    "https:" ++ _ -> Abs;
-                                    _             -> filename:absname(F, Dir)
-                                end
-                        end,
-                    More = [AbsName(E) || {link, E, _I} <- Refs],
-                    deep_parse_files(Rest++More, [{ok, Abs, Refs, Type} | Acc]);
+                    More = [absname(E, Abs) || {link, E, _I} <- Refs],
+                    Acc2 = [{ok, Abs, Refs, Type} | Acc],
+                    do_deep_parse_files(Rest++More, Remote, Acc2);
                 {error, Line, Col, Reason} ->
                     Acc2 = [{error, Abs, Line, Col, Reason} | Acc],
-                    deep_parse_files(Rest, Acc2)
+                    do_deep_parse_files(Rest, Remote, Acc2)
             end
     end;
-deep_parse_files([], Acc) ->
+do_deep_parse_files([], _Remote, Acc) ->
     lists:reverse(Acc).
+
+absname(External, Abs) ->
+    case External of
+        "" ->
+            Abs;
+        "http:"  ++ _ ->
+            Abs;
+        "https:" ++ _ ->
+            Abs;
+        _ ->
+            Dir = filename:dirname(Abs),
+            filename:absname(External, Dir)
+    end.
 
 to_links(Simple) ->
     Fun = fun({href, Name}, _Parents, Acc) ->
@@ -161,8 +187,15 @@ to_links(Simple) ->
           end,
     iterate(Fun, Simple, []).
 
-parse_file(File) ->
+parse_file(URL, true) ->
+    case httpc:request(URL) of
+        {ok, {{Version, 200, ReasonPhrase}, Headers, Body}} ->
+            {Internal, Rest} = xmerl_scan:string(Body, [{quiet,true}]),
+
+parse_file(File, false) ->
     case lists:suffix(".html", File) of
+        true ->
+            parse_html_file(File);
         false ->
             case filelib:is_file(File) of
                 false ->
@@ -170,9 +203,7 @@ parse_file(File) ->
                     {error, 0, 0, Enoent};
                 true ->
                     {ok, [], no_html}
-            end;
-        true ->
-            parse_html_file(File)
+            end
     end.
 
 parse_html_file(File) ->
