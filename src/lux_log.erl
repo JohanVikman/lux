@@ -1187,6 +1187,7 @@ safe_format(Progress, LogFun, Fd, Format, Args) ->
 safe_write(Progress, LogFun, Fd, IoList) when is_list(IoList) ->
     safe_write(Progress, LogFun, Fd, ?l2b(IoList));
 safe_write(Progress, LogFun, Fd0, Bin) when is_binary(Bin) ->
+    throw({error, {safe_write, log_fun, Bin, reason}}),
     case Fd0 of
         undefined ->
             Fd = Fd0,
@@ -1207,8 +1208,8 @@ safe_write(Progress, LogFun, Fd0, Bin) when is_binary(Bin) ->
             try
                 io:format("~s", [?b2l(Bin)])
             catch
-                _:CReason ->
-                    exit({safe_write, compact, Bin, CReason})
+                error:CReason ->
+                    throw({error, {safe_write, compact, Bin, CReason}})
             end;
         compact ->
             ok;
@@ -1216,8 +1217,8 @@ safe_write(Progress, LogFun, Fd0, Bin) when is_binary(Bin) ->
             try
                 io:format("~s", [dequote(?b2l(Bin))])
             catch
-                _:VReason ->
-                    exit({safe_write, verbose, Bin, VReason})
+                error:VReason ->
+                    throw({error, {safe_write, verbose, Bin, VReason}})
             end;
         verbose ->
             ok
@@ -1225,15 +1226,10 @@ safe_write(Progress, LogFun, Fd0, Bin) when is_binary(Bin) ->
     case Fd of
         undefined ->
             try
-                case LogFun(Bin) of
-                    <<_/binary>> ->
-                        ok;
-                    BadRes ->
-                        exit({safe_write, log_fun, Bin, BadRes})
-                end
+                LogFun(Bin)
             catch
-                _:LReason ->
-                    exit({safe_write, log_fun, Bin, LReason})
+                error:LReason ->
+                    throw({error, {safe_write, log_fun, Bin, LReason}})
             end;
         _ ->
             try file:write(Fd, Bin) of
@@ -1241,11 +1237,10 @@ safe_write(Progress, LogFun, Fd0, Bin) when is_binary(Bin) ->
                     ok;
                 {error, FReason} ->
                     Str = file:format_error(FReason),
-                    io:format("\nfile write failed: ~s\n", [Str]),
-                    exit({safe_write, file, Fd, Bin, {error, FReason}})
+                    throw({error, {safe_write, file, Bin, Str}})
             catch
-                _:WReason ->
-                    exit({safe_write, file, Bin, WReason})
+                error:WReason ->
+                    throw({error, {safe_write, file, Bin, WReason}})
             end
     end,
     Bin.
